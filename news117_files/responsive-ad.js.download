@@ -1,0 +1,722 @@
+/**
+ * Responsive Adtech
+ *
+ * @author John Branca <John.Branca@performgroup.com>
+ * @copyright 2016
+ */
+(function(Modernizr, $, _, googletag) {
+
+  "use strict";
+
+  window.ResponsiveAd = window.ResponsiveAd || {};
+
+    var PERFORM_ACCOUNT_URL = '/67970281/DISPLAY_OWNED_GBL/SportingNews_Responsive/',
+      SETTINGS = {
+      config: {
+        page: {
+          params: {
+            loc: '100'
+          }
+        }
+      },
+      containers: {}
+    },
+    amazonKey = 'amznslots',
+    /**
+     * DFP Section Map
+     */
+    SECTION_MAP = {
+      'ncaa-football': 'NCAAFB',
+      'ncaa-basketball': 'NCAABB',
+      'ncaaf': 'NCAAFB',
+      'ncaab': 'NCAABB',
+      'home page': 'Homepage',
+      'nba-au': 'NBA',
+      'horse-racing': 'HORSERACING',
+      'league': 'RUGBYLEAGUE',
+      'rugby': 'RUGBYUNION',
+      'betting-zone': 'USSPORTS',
+    },
+    SIZE_MAPPING = {
+      'Top_Banner': [
+        [
+          [970, 250], [[970, 250], [970, 90], [728, 90]]
+        ],
+        [
+          [760, 100], [728, 90]
+        ],
+        [
+          [0,0], [320, 50]
+        ]
+      ],
+      'Bottom_Banner': [
+        [
+          [970, 250], [[970, 90], [728, 90]]
+        ],
+        [
+          [760, 100], [728, 90]
+        ],
+        [
+          [0,0], [320, 50]
+        ]
+      ],
+      'Top_MPU': [
+        [
+          [760, 100], [[300, 600], [300, 250]]
+        ],
+        [
+          [0,0], [300, 250]
+        ]
+      ],
+      'Desktop_MPU': [
+        [
+          [760, 100], [[300, 600], [300, 250]]
+        ],
+        [
+          [0,0], []
+        ]
+      ],
+      'Mobile_MPU': [
+        [
+          [760, 100], []
+        ],
+        [
+          [0,0], [300, 250]
+        ]
+      ],
+    },
+    getSection = function(section) {
+      return SECTION_MAP[section.toLowerCase()] || section.toUpperCase();
+    },
+    inView = function(el) {
+      if (el instanceof $) {
+        el = el[0];
+      }
+
+      if (el === undefined || el.offsetParent === null) {
+        return false;
+      }
+
+      var rect = el.getBoundingClientRect();
+
+      return (rect.bottom > 0 && rect.right > 0
+          && rect.top <= (window.innerHeight || document.documentElement.clientHeight)
+          && rect.left <= (window.innerWidth || document.documentElement.clientWidth));
+    },
+    isHidden = function(el) {
+      if (el.css('display') == 'none') {
+        return true;
+      }
+      return false;
+    },
+    Ad = (function() {
+      var _private = {
+        config: SETTINGS.config || {},
+        bounds: [],
+        placements: [],
+        forceLoad: false,
+        clearQueueId: null,
+        queueId: null,
+        displayed: [],
+      };
+      return {
+        init: function() {
+          window.receiveMessage = function(event) {
+            try {
+              var eventData = JSON.parse(event.data);
+              } catch (e) {}
+
+            if (eventData !== undefined) {
+              switch (eventData.type) {
+                case 'iframe-skin':
+                  window.iframeSkin(eventData);
+                  break;
+                case 'iframe-expander':
+                  window.iframeExpander(eventData);
+                  break;
+                case 'interstitial':
+                  window.interstitialSkin(eventData);
+                  break;
+              }
+
+            }
+          };
+
+          // attach events needed for iframe communication for skins
+          if (window.attachEvent) {
+            window.attachEvent('onmessage', window.receiveMessage);
+          } else {
+            window.addEventListener('message', window.receiveMessage, false);
+          }
+
+          return this;
+        },
+        loadAd: function(containerId) {
+          var self = this,
+            adPlacement = null;
+
+          adPlacement = self.search(containerId);
+
+          if (adPlacement !== false) {
+            googletag.cmd.push(function() {
+              googletag.display(containerId);
+            });
+
+            _private.displayed.push(containerId);
+          }
+
+          return this;
+        },
+        search: function(containerId) {
+          var placement = false;
+
+          _.each(_private.placements, function(value) {
+            if (value.adContainerId === containerId) {
+              placement = value;
+            }
+          });
+
+          return placement;
+        },
+        refresh: function(containerId) {
+          _.each(_private.placements, function(value) {
+            if (value.id == containerId) {
+              googletag.cmd.push(function() {
+                googletag.pubads().refresh([value.adSlot]);
+              });
+
+              return;
+            }
+          });
+        },
+        refreshAll: function() {
+          _.each(_private.placements, function(value) {
+            googletag.cmd.push(function() {
+              googletag.pubads().refresh([value.adSlot]);
+            });
+          });
+        },
+        adjustHeightAndMargin: function(el) {
+          var el = el = (el instanceof jQuery) ? el : $(el),
+            minHeight = parseInt(el.data('minHeight'), 10),
+            height = (el.height() >= minHeight
+              ? el.height() : minHeight)  || 0,
+            marginBottom = el.data('marginBottom') == '0'
+              ? '0' : (el.data('marginBottom') || null),
+            css = {};
+
+            el.css('min-height', '');
+            var removedHeight = el.height();
+
+          if (removedHeight < height) {
+            height = removedHeight;
+          }
+
+          if (height !== 0) {
+            css['min-height'] = height;
+          }
+
+          if (marginBottom) {
+            css['margin-bottom'] = marginBottom;
+          }
+
+          el.css(css);
+          return el;
+        },
+        setUpPlacement: function(placementUrl, adSizes, id, dataPlacement, adTypeAlias, params) {
+          var ad = null,
+            responsiveMapping = null,
+            sizeMapping = null,
+            builtMapping = null,
+            aliasFound = false,
+            dataPlacementFound = false,
+            self = this;
+
+          googletag.cmd.push(function() {
+            ad = googletag.defineSlot(placementUrl, adSizes, id);
+
+            // search by alias and then dataPlacement
+            aliasFound = _.has(SIZE_MAPPING, adTypeAlias);
+            dataPlacementFound = _.has(SIZE_MAPPING, dataPlacement);
+
+            if (aliasFound === true) {
+              sizeMapping = SIZE_MAPPING[adTypeAlias];
+            } else if (dataPlacementFound === true) {
+              sizeMapping = SIZE_MAPPING[dataPlacement];
+            }
+
+            if (aliasFound !== false || dataPlacementFound !== false) {
+              responsiveMapping = googletag.sizeMapping();
+
+              for (var i = 0; i < sizeMapping.length; i++) {
+                responsiveMapping.addSize(sizeMapping[i][0], sizeMapping[i][1]);
+              }
+
+              builtMapping = responsiveMapping.build();
+              ad.defineSizeMapping(builtMapping);
+            }
+
+            ad.addService(googletag.pubads());
+            ad.setTargeting(amazonKey, window.amzValues);
+
+            if (_.isObject(params)) {
+              _.each(params, function(parameterValue, parameterKey) {
+                ad.setTargeting(parameterKey, parameterValue);
+              });
+            }
+          });
+
+          return ad;
+        },
+        getPlacementLength: function() {
+          return _private.placements.length;
+        },
+        addPlacement: function(ad, placementUrl, params, id, el, loadInView) {
+          _private.placements.push({
+            adSlot: ad,
+            placementUrl: placementUrl,
+            params: params,
+            adContainerId: id,
+            el: el,
+            loadInView: loadInView
+          });
+        },
+        getPlacementUrl: function(dataPlacement, adType) {
+          return PERFORM_ACCOUNT_URL + adType + '/' + dataPlacement;
+        },
+        /**
+         * Build ad queue using DOM element. Clear ad if a second argument is
+         * provided.
+         *
+         * @param obj - DOM element
+         * @param bool - Default false set to true to clear ad
+         */
+        buildQueue: function(selector) {
+          var self = this,
+            ad = null,
+            sizeMapping = null,
+            responsiveMapping = null,
+            el = null,
+            id = null,
+            adTypeAlias = null,
+            aliasFound = null,
+            dataPlacementFound = null,
+            adSizes = null,
+            dataPlacement = null,
+            params = null,
+            placementUrl = null,
+            clear = arguments[1] || false,
+            height = null,
+            marginBottom = null,
+            load = null,
+            loadInView = null,
+            builtMapping = null,
+            adblockKv = 'false',
+            selector = (selector instanceof jQuery) ? selector : $(selector),
+            css = {};
+
+          if (typeof I10C != 'undefined'){
+            if (I10C.Morph === 1){
+              adblockKv = 'true';
+            }
+          }
+
+          googletag.cmd.push(function() {
+            $(selector).each(function(index, value) {
+              el = $(value);
+              id = el.attr('id');
+              adSizes = el.data('ad-sizes');
+              dataPlacement = el.data('placement');
+              adTypeAlias = el.data('placement-alias');
+              params = el.data('parameters') || null;
+              placementUrl = self.getPlacementUrl(dataPlacement, el.data('adType'));
+              height = (el.height() >= parseInt(el.data('minHeight'), 10)
+                ? el.height() : null)  || el.height();
+              marginBottom = el.data('marginBottom') == '0' ? '0' : (el.data('marginBottom') || '20px');
+              load = typeof el.data('load') == "undefined" ? true : el.data('load');
+              loadInView = typeof el.data('load-in-view') == "undefined" ? false : el.data('load-in-view'),
+              dataPlacementFound = false,
+              aliasFound = false;
+
+              if (id === "") {
+                id = dataPlacement + index;
+                el.attr('id', id);
+              }
+
+              ad = googletag.defineSlot(placementUrl, adSizes, id);
+
+              // search by alias and then dataPlacement
+              aliasFound = _.has(SIZE_MAPPING, adTypeAlias);
+              dataPlacementFound = _.has(SIZE_MAPPING, dataPlacement);
+
+              if (aliasFound === true) {
+                sizeMapping = SIZE_MAPPING[adTypeAlias];
+              } else if (dataPlacementFound === true) {
+                sizeMapping = SIZE_MAPPING[dataPlacement];
+              }
+
+              if (aliasFound !== false || dataPlacementFound !== false) {
+                responsiveMapping = googletag.sizeMapping();
+
+                for (var i = 0; i < sizeMapping.length; i++) {
+                  responsiveMapping.addSize(sizeMapping[i][0], sizeMapping[i][1]);
+                }
+
+                builtMapping = responsiveMapping.build();
+                ad.defineSizeMapping(builtMapping);
+              }
+
+              ad.addService(googletag.pubads());
+              ad.setTargeting(amazonKey, window.amzValues);
+
+              if (_.isObject(params) && index === 0) {
+                _.each(params, function(parameterValue, parameterKey) {
+                  googletag.pubads().setTargeting(parameterKey, parameterValue);
+                });
+              }
+
+              _private.placements.push({
+                adSlot: ad,
+                placementUrl: placementUrl,
+                dataPlacement: dataPlacement,
+                params: params,
+                adContainerId: id,
+                load: load,
+                el: el,
+                loadInView: loadInView
+              });
+            });
+
+            googletag.pubads().setTargeting('adblocker', adblockKv);
+            googletag.pubads().enableSingleRequest();
+            googletag.pubads().collapseEmptyDivs();
+            googletag.enableServices();
+
+            _.each(_private.placements, function(value, key) {
+              if ((value.placementUrl && (value.load && ! value.loadInView)) || (_private.forceLoad)) {
+                if (_private.displayed.indexOf(value.adContainerId) == -1 || _private.forceLoad) {
+                  googletag.display(value.el.attr('id'));
+                  _private.displayed.push(value.el.attr('id'));
+
+                  el = self.adjustHeightAndMargin(value.el);
+
+                  if (clear) {
+                    // Clear body style if skin
+                    if (value.dataPlacement.indexOf('SKIN') !== -1) {
+                      $('body').attr('style', '');
+                    }
+
+                    // Clear element
+                    value.el.empty();
+                  }
+                }
+              }
+            });
+
+          });
+
+          return this;
+        },
+        forceLoad: function(flag) {
+          _private.forceLoad = flag;
+          return this;
+        },
+        bindInViewEvent: function() {
+          var self = this,
+            loadAdInView = function(placement, callback) {
+              if (inView(placement.el)) {
+                return callback(placement)
+              }
+            },
+            load = function(placement) {
+              var id = placement.adContainerId,
+                el = placement.el;
+
+              if (placement.loadInView && _private.displayed.indexOf(id) == -1) {
+                self.loadAd(id);
+                self.adjustHeightAndMargin(el);
+              }
+            },
+            handler = function(evt) {
+              for (var i in _private.placements) {
+                var placement = _private.placements[i];
+                loadAdInView(placement, load);
+              }
+            },
+            throttledHandler = _.throttle(handler, 250);
+          $(window).on('DOMContentLoaded load resize scroll', throttledHandler);
+          return this;
+        },
+        loadInViewPlacements: function() {
+          var self = this;
+
+          self.bindInViewEvent();
+        }
+      }
+    })();
+
+  /**
+   * Public methods - These methods can be accessed globally
+   */
+  /**
+   * Queue a single ad with the option of reloading it.
+   *
+   * @param string selector - DOM selector of element to serve ad
+   * @param boolean [reload] - to empty ad before inject defaults to false
+   */
+  ResponsiveAd.getAd = function(el) {
+    var reload = arguments[1] || false;
+
+    Ad.init()
+      .forceLoad(true)
+      .buildQueue(el, reload);
+  };
+
+  ResponsiveAd.loadAd = function(id) {
+    Ad.loadAd(id);
+  };
+
+  ResponsiveAd.injectAd = function(dataPlacement, adSelector) {
+    // Define the slot itself, call display() to
+    // register the div and refresh() to fetch ad.
+    var ad = null,
+      adSelector = (adSelector instanceof jQuery) ? adSelector : $(adSelector),
+      id = adSelector.attr('id'),
+      adType = adSelector.data('ad-type'),
+      params = adSelector.data('parameters'),
+      adSizes = adSelector.data('ad-sizes'),
+      adTypeAlias = adSelector.data('placement-alias'),
+      placementUrl = Ad.getPlacementUrl(dataPlacement, adType),
+      inView = arguments[2] || false;
+
+   ad = Ad.setUpPlacement(placementUrl, adSizes, id, dataPlacement, adTypeAlias, params);
+   Ad.addPlacement(ad, placementUrl, params, id, $("#" + id), false);
+
+   googletag.cmd.push(function() {
+    // Display has to be called before
+    // refresh and after the slot div is in the page.
+    googletag.pubads().refresh([ad]);
+   });
+  };
+
+  ResponsiveAd.refresh = function(id) {
+    var ids = _.isArray(id) ? id : [id];
+
+    for (var i = 0; i < ids.length; i++) {
+      Ad.refresh(ids[i]);
+    }
+  };
+
+  ResponsiveAd.refreshAll = function() {
+    Ad.refreshAll();
+  };
+
+  /**
+   * Queue ads on the page with the option of reloading them.
+   *
+   * @param string selector - DOM selector of element to serve ad
+   * @param boolean [reload] - to empty ad before inject defaults to false
+   */
+  ResponsiveAd.queueAds = function(selector, reload) {
+    var callback = arguments[2] || null;
+
+    Ad.init();
+    Ad.buildQueue(selector, reload);
+    if (reload) {
+      Ad.forceLoad(true);
+    }
+    Ad.loadInViewPlacements();
+
+    return (typeof callback == 'function') ? callback() : callback;
+   };
+
+  window.interstitialSkin = function(eventData) {
+    var interstitialContainer = document.createElement('div'),
+        interstitialOpacityContainer = document.createElement('div'),
+        interstitialBanner = document.createElement('img'),
+        anchorTag = document.createElement('a'),
+        pixelCounter = document.createElement('img'),
+        pixelCounter2 = document.createElement('img'),
+        closeButton = document.createElement('div'),
+        closeHandler = function() {
+          $('#interstitial-container').hide();
+          $('#interstitial-opacity-container').hide();
+          $('body').off('click');
+        };
+
+    $('body').addClass('interstitial-enabled')
+      .on('click', closeHandler);
+
+    $(interstitialOpacityContainer).attr('id', 'interstitial-opacity-container')
+      .css({
+        opacity: eventData.bgcolor_visibility,
+        filter: 'alpha(opacity=' + (eventData.bgcolor_visibility * 100) + ')',
+        width: '100%',
+        height: '100%',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        'background-color': '#000'
+      });
+
+    $(closeButton).text('×').attr('id', 'close-button')
+      .on('click', function(evt) {
+        closeHandler();
+      });
+
+    if (eventData.close_auto === 'true') {
+      window.setTimeout(closeHandler, parseInt(eventData.close_sec) * 1000);
+    }
+
+    // add click impressions and onclick event
+    $(anchorTag).on('click', function(evt) {
+      window.open(eventData.clicktracker + eventData.link);
+      closeHandler();
+    });
+
+    $(anchorTag).attr({
+      'target': '_blank',
+      'rel': 'noopener noreferrer',
+    });
+
+    $(interstitialBanner).attr({
+      'width': eventData.width,
+      'height': eventData.height,
+      'src': eventData.image.source
+    });
+
+    $(pixelCounter).attr({
+      'width': 1,
+      'height': 1,
+      'src': eventData.pixel_counter
+    });
+
+    $(interstitialContainer)
+      .attr('id', 'interstitial-container')
+      .css({
+        width: eventData.width,
+        height: eventData.height,
+        top: 'calc(50vh - (' + eventData.height + 'px / 2))',
+        left: 'calc(50vw - (' + eventData.width + 'px / 2))',
+      });
+
+    $(anchorTag).append(interstitialBanner);
+    $(interstitialContainer).append(closeButton)
+      .append(anchorTag).append(pixelCounter);
+
+    if (eventData.pixel_counter2 !== '') {
+      $(pixelCounter2).attr({
+        'width': 1,
+        'height': 1,
+        'src': eventData.pixel_counter2
+      });
+
+      $(interstitialContainer).append(pixelCounter2);
+    }
+
+    $('body').append(interstitialContainer)
+      .append(interstitialOpacityContainer);
+  };
+  window.iframeExpander = function(eventData) {
+    var iframeId = 'google_ads_iframe_/67970281/DISPLAY_OWNED_GBL/SportingNews_Responsive/Homepage/Top_Banner_0',
+      currentIframe = document.getElementById(iframeId),
+      currentIframeStatus = currentIframe.height == 90 ? 'collapsed' : 'expanded',
+      adEvent = eventData.status,
+      defaultHeight = 90,
+      expandedHeight = 250;
+
+      if (currentIframeStatus == 'collapsed' && adEvent == 'expand') {
+        currentIframe.height = expandedHeight;
+      } else if (currentIframeStatus == 'expanded' && adEvent == 'collapse') {
+        currentIframe.height = defaultHeight;
+      }
+  };
+  window.iframeSkin = function(eventData) {
+    var background = document.createElement('div'),
+        anchorTags = [document.createElement('a'), document.createElement('a')],
+        // number of pixels from top, including ad placeholder
+        defaultPositionFromTop = 120,
+        reducedHeaderPositionFromTop = 60,
+        positionFromTop = defaultPositionFromTop,
+        topMargin = eventData.topMargin,
+        bodyWidth = $('body').width();
+
+    if (topMargin != 0 && ! isNaN(parseFloat(topMargin)) && isFinite(topMargin)) {
+      positionFromTop = topMargin;
+    }
+
+    $('body').addClass('skin-enabled');
+
+    if (eventData.bgAttachment === 'scroll') {
+      $('body').addClass('skin-scroll');
+    }
+
+    $(background).attr('id', 'sn-skin-background')
+      .css({
+        'background-color': eventData.image.backgroundColor,
+        'background-image': 'url(' + eventData.image.source + ')',
+        'background-position': 'center ' + positionFromTop + 'px',
+        'height': eventData.image.height,
+        'background-color': eventData.image.backgroundColor,
+      });
+
+    // add click impressions and onclick event
+    $(anchorTags).on('click', function(evt) {
+      if (eventData.thirdParty.clks[0] !== "") {
+        var img = document.createElement('img');
+        $(img).attr('src', eventData.thirdParty.clks[0]);
+      }
+
+      window.open(eventData.clickThroughUrl);
+    });
+
+    $(anchorTags).attr({
+      'target': '_blank',
+      'rel': 'noopener noreferrer',
+      'class': 'sn-skin-anchor-tag'
+    }).css({
+      'display': 'block',
+      'width': ((bodyWidth - 980) / 2) + 'px',
+      'height': ($('body').height() - positionFromTop) + 'px',
+      'cursor': 'pointer',
+      'top': positionFromTop + 'px'
+    });
+
+    $(anchorTags[0]).addClass('sn-skin-anchor-tag-left');
+    $(anchorTags[1]).addClass('sn-skin-anchor-tag-right');
+
+    for (var i = 0; i < eventData.thirdParty.imps.length; i++) {
+      if (eventData.thirdParty.imps[i] !== '') {
+        var img = document.createElement('img');
+        $(img).attr('src', eventData.thirdParty.imps[i]);
+      }
+    }
+
+    $('.ad-skin').append(background).append(anchorTags);
+
+    var changeTopPosition = function(evt) {
+      var skinAnchorWidth = (($('body').width() - 980) / 2);
+
+      if ($('header').hasClass('reduced')) {
+        $("#sn-skin-background").css({
+          'background-position': 'center ' + reducedHeaderPositionFromTop + 'px'
+        });
+      } else {
+        $("#sn-skin-background").css({
+          'background-position': 'center ' + positionFromTop + 'px'
+        });
+      }
+
+
+      if (skinAnchorWidth > 0) {
+        $('.sn-skin-anchor-tag').css({
+          width: skinAnchorWidth + 'px',
+          height: ($('body').height() - positionFromTop) + 'px'
+        });
+      }
+    },
+    throttledHandler = _.throttle(changeTopPosition, 250);
+    $(window).on('resize scroll', throttledHandler);
+  };
+
+})(Modernizr, jQuery, _, googletag);

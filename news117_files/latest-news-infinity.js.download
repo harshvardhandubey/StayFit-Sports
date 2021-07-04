@@ -1,0 +1,175 @@
+(function($, Modernizr, googletag, SNLib) {
+  $('.latest-news-module.infinite').css("padding-bottom", "100px");
+
+  var Request = {
+      queryString: function(item) {
+        var svalue = location.search.match(new RegExp("[\?\&]" + item + "=([^\&]*)(\&?)","i"));
+        return svalue ? svalue[1] : svalue;
+      }
+    },
+    page = parseInt(Request.queryString('page'), 10) || 1,
+    originalPage = page,
+    pageUrl,
+    sectionName = SN.section.shortName == 'SN' || ! SN.section.shortName ? 'All Sports' : SN.section.shortName,
+    ready = true,
+    footerHeight = $('.footer').height(),
+    nextLoadOffset = footerHeight,
+    latestNewsHeight = $('.latest-news-module.infinite').height(),
+    latestNewsOffset = $('.latest-news-module.infinite').offset().top,
+    distanceFromBottom,
+    currentScrollTop = $(window).scrollTop(),
+    lastUpdatePosition = currentScrollTop,
+    morePages = true,
+    pageBreaks = [{"page" : page, "bottom" : latestNewsOffset + latestNewsHeight}],
+    changeUrl = function(url) {
+      var title = document.title;
+      if (typeof window.history !== 'undefined') {
+        window.history.pushState({}, title, url);
+      } else {
+        window.location = window.location.protocol + '://' + window.location.domain + url;
+      }
+    },
+    getMoreNews = function(distanceFromBottom) {
+      if (distanceFromBottom < nextLoadOffset && ready === true) {
+        ready = false;
+
+        var loadingIndication = ($("<div>", {"class": "infinity-load-next-btn"}).html('<i class="fa fa-chevron-down"></i> Loading More...'));
+        $('.latest-news-module.infinite .media-list').append(loadingIndication);
+
+        page++;
+
+        var url = window.location.pathname + '?page=' + page,
+          titleArray = document.title.split('|'),
+          pageTitle = titleArray.shift().replace(/\s-\sPage\s[0-9]+/, ''),
+          nextContentHeight = 2000,
+          title = pageTitle + ' - Page ' + page + ' | ' + titleArray.join(' | ');
+
+        $.get(url, function(data, status) {
+          var moreNews = $(data).find('.latest-news-module.infinite .media-list').html(),
+            injectedAdSelector = '.latest-news-module.infinite .ad-unit-module.injected-ad > div',
+            bottomMPU;
+
+          if ($(data).find('.latest-news-module.infinite')[0]) {
+            $('.latest-news-module.infinite .media-list').append(moreNews);
+            $('.latest-news-module.infinite .media-list .infinity-load-next-btn').removeClass('infinity-load-next-btn').empty();
+            document.title = title;
+
+            setTimeout(function() {
+              ready = true;
+            }, 1000);
+
+            SNLib.lazyloadImages();
+
+            // Queue injected ad
+            bottomMPU = $("div.injected-ad > div").last();
+            ResponsiveAd.injectAd("Bottom_MPU", bottomMPU);
+
+            // Resend Page View
+            sendPageView(url);
+
+            // Preserve page and vertical breakpoint history
+            preserveHistory();
+          } else {
+            $('.latest-news-module.infinite .media-list .infinity-load-next-btn').removeClass('infinity-load-next-btn').empty();
+            $('.latest-news-module.infinite').css("padding-bottom", "20px");
+
+            morePages = false;
+            return;
+          }
+        });
+      }
+    },
+    preserveHistory = function() {
+      pageBreaks.unshift({
+        "page" : page,
+        "bottom" : latestNewsOffset + $('.latest-news-module.infinite').height()
+      });
+    },
+    sendPageView = function(url) {
+      var params = {
+        'dimension1': SN.section.omnitureString || 'sn',
+        'dimension2': 'Responsive',
+        'dimension4': document.title
+      },
+      resetParams = ['metric6', 'dimension27'];
+
+      if(Modernizr.mq("only screen and (max-width: 727px)")) {
+        params.dimension6 = "Mobile";
+      } else if (Modernizr.mq("only screen and (min-width:728px) and (max-width: 979px)")) {
+        params.dimension6 = "Tablet";
+      } else {
+        params.dimension6 = "Desktop";
+      }
+
+      for (var i in resetParams) {
+        window.ga('set', resetParams[i], null);
+      }
+
+      for (var name in params) {
+        window.ga('set', name, params[name]);
+      }
+
+      window.ga('send', 'pageview', url);
+
+      if(window.SN.SITE_LOCALE == 'AU') {
+        for (var z in resetParams) {
+          window.ga('australia.set', resetParams[z], null);
+        }
+        for (var item in params) {
+          window.ga('australia.set', item, params[item]);
+        }
+        window.ga('australia.send', 'pageview', url);
+      }
+    },
+    // Use page vertical breakpoint history to keep URL up to date.
+    updatePageNumber = function() {
+      var pageUrl = window.location,
+        displayPage = page;
+
+      if (pageBreaks.length) {
+        $.each(pageBreaks, function() {
+          var item = $(this)[0];
+
+          if ($(window).scrollTop() < item.bottom) {
+            displayPage = item.page;
+            pageUrl = (displayPage == 1) ? window.location.pathname : window.location.pathname + '?page=' + displayPage;
+          }
+        });
+
+        if (window.location !== pageUrl) {
+          changeUrl(pageUrl);
+        }
+
+        // Hide and show 'back to top' button accordingly.
+        if (displayPage == originalPage) {
+          $('a.back-to-top').addClass('hidden');
+        } else {
+          $('a.back-to-top').removeClass('hidden');
+        }
+      }
+    };
+
+    // Scroll function detects position and triggers infinite scroll and URL updates.
+    if (morePages === true) {
+      $(window).scroll(function(){
+        distanceFromBottom = $(document).height() - $(window).scrollTop()  - $(window).height();
+
+        getMoreNews(distanceFromBottom);
+
+        currentScrollTop = $(window).scrollTop();
+        if (currentScrollTop - lastUpdatePosition > 200 || currentScrollTop - lastUpdatePosition < -200) {
+          lastUpdatePosition = currentScrollTop;
+          updatePageNumber();
+        }
+      });
+    }
+
+    // Click back-to-top returns to top and resets URL
+    $('a.back-to-top').on('click', function(evt) {
+      var url = window.location.pathname + '?page=' + originalPage;
+      evt.preventDefault();
+      $('html,body').animate({scrollTop:0}, 400);
+      sendPageView(url);
+    });
+
+  })(jQuery, Modernizr, googletag, SNLib);

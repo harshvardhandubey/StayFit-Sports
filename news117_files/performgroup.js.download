@@ -1,0 +1,49 @@
+//Performgroup functions
+// 09.28.2016 - 20:44
+(function (window)
+{
+    function addPlayer(channelId, videoUUId, partnerId,  divNameString,  autoPlay, startMute,  playerId, playerType, customSettings)
+    {
+        if(console && console.log) {
+            console.log("\n\n-------------- WARNING -------------------\n\n");
+            console.log("Sorry! Eplayer 2 is not supported anymore.\n\n");
+            console.log("------------------------------------------\n\n");
+        }
+
+        var element = document.getElementsByName(divNameString);
+
+        if(element.length == 1) {
+            element.parentNode.removeChild(element[0]);
+        }
+
+        element = document.getElementById(divNameString);
+
+        if(element) {
+            element.parentNode.removeChild(element);
+        }
+
+        var scripts = document.getElementsByTagName("script");
+
+        for(var i = 0; i < scripts.length; i ++) {
+            var script = scripts[i];
+
+            if(script.src == "http://static.eplayer.performgroup.com/flash/js/performgroup.js" ||
+                script.src == "http://static.eplayer.performgroup.com/flash/js/swfobject.js" ||
+                script.src.indexOf("http://www.performgroup.com/ptvFlash/eplayer2") > -1 ||
+                script.text.indexOf("addPlayer") > -1 ||
+                script.text.indexOf("addResponsivePlayer") > -1) {
+                script.parentNode.removeChild(script);
+                i--;
+            }
+        }
+   }
+
+    function addResponsivePlayer(p_playerUuid, p_channelUuid, p_videoUuid, p_divNameString, p_playerType, p_customSettings)
+    {
+         addPlayer(p_channelUuid, p_videoUuid, '', p_divNameString, null, null, p_playerUuid, p_playerType, p_customSettings);
+    }
+
+    window.addPlayer                    = addPlayer;
+    window.addResponsivePlayer          = addResponsivePlayer;
+
+}(this));

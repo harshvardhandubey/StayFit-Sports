@@ -1,0 +1,550 @@
+/**
+ * Navigation JS file
+ *
+ * dependencies:
+ *      - jQuery 1.11+
+ *      - Underscore
+ * @todo Build out the complex nav items
+ * @author Hillisha Haygood <hhaygood@sportingnews.com>
+ */
+(function($, _, Modernizr, GlobalNav) {
+    "use strict";
+
+    var EditionNavigation = (function() {
+        var availableEditions = ['US', 'AU'],
+            currentEdition = 'US',
+            namespace = 'sn.edition',
+            $editionNavFlags = $('.edition-nav .flag:not(.active)'),
+            $editionModal = $('#editionModal'),
+            locationUrl = window.SN.EDITIONS['US'] + '/location';
+
+        return {
+            bindEditionChange: function() {
+                var that = this;
+                $editionNavFlags.find("img,span").on("click", function() {
+                    var newEdition = $(this).parent()
+                        .attr('data-edition').toUpperCase();
+
+                    that.setEdition(newEdition);
+                    that.redirectToEdition(that.currentEdition);
+                });
+            },
+            isEditionExpired: function()
+            {
+                var thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                if (typeof localStorage[namespace + '.date'] !== "undefined") {
+                    if (thirtyDaysAgo > new Date(localStorage[namespace + '.date'])) {
+                        localStorage.removeItem([namespace + '.date']);
+                        localStorage.removeItem([namespace + '.current']);
+                        return true;
+                    }
+                }
+
+                return false;
+            },
+            detectEdition: function() {
+                var expiredEdition = this.isEditionExpired(),
+                    isEditionHomePage = false,
+                    currentUrl = window.location.href;
+
+                if (currentUrl.lastIndexOf("/") == currentUrl.length - 1) {
+                    currentUrl = currentUrl.slice(0, -1);
+                }
+
+                isEditionHomePage = _.contains(window.SN.EDITIONS, currentUrl);
+
+                this.currentEdition = window.SN.SITE_LOCALE;
+
+                // check to make sure the edition in local storage isn't expired
+                // and redirect if it's different than the current one
+                if (!expiredEdition && typeof localStorage[namespace + '.current'] !== "undefined") {
+                    if (localStorage[namespace + '.current'] != this.currentEdition && isEditionHomePage) {
+                        this.redirectToEdition(localStorage[namespace + '.current']);
+                    }
+                }
+            },
+            locationCheck: function() {
+                var that = this,
+                    oneDayAgo = new Date();
+
+                oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+
+                // clean up localStorage and return if it's been less than a day
+                // since a user canceled out of the modal
+                if (typeof localStorage[namespace + '.modal.date'] !== "undefined") {
+                    if (oneDayAgo > new Date(localStorage[namespace + '.modal.date'])) {
+                        localStorage.removeItem([namespace + '.modal.date']);
+                    } else {
+                        return;
+                    }
+                }
+                $.get(locationUrl, function(data) {
+                    if (data.resultCode == 200 && typeof localStorage[namespace + '.current'] === "undefined") {
+                        if (that.currentEdition !== data.result) {
+                            var $flagElem = $('li.' + data.result.toLowerCase() + '-flag'),
+                                flagHtml;
+                            if ($flagElem.length == 0) {
+                                return;
+                            }
+
+                            flagHtml = $flagElem.html();
+                            flagHtml = flagHtml.replace(/(USA|AUS)/, '$1 Edition');
+
+                            $('#current-location').text(data.unfilteredResult);
+                            $('#new-edition').html(flagHtml);
+
+                            // bind method to the confirm button of the modal
+                            $editionModal.find('.btn-confirm,#new-edition').on('click', function() {
+                                that.setEdition(data.result);
+                                that.redirectToEdition(data.result);
+                            });
+                            $editionModal.on('hide.bs.modal', function() {
+                                localStorage[namespace + '.modal.date'] = new Date().toString();
+                            });
+
+                            $editionModal.modal();
+                        }
+                    }
+                });
+            },
+            getCurrentEdition: function() {
+                return this.currentEdition;
+            },
+            isValidEdition: function(edition) {
+                if (_.contains(availableEditions, edition)) {
+                    return true;
+                }
+
+                return false;
+            },
+            setEdition: function(edition) {
+                if (this.isValidEdition(edition)) {
+                    this.currentEdition = edition;
+
+                    localStorage[namespace + '.date'] = new Date().toString();
+                    localStorage[namespace + '.current'] = edition;
+                }
+            },
+            redirectToEdition: function(edition) {
+                window.location.href = window.SN.EDITIONS[edition];
+            }
+        }
+    })();
+
+    window.navigationOptions = {
+        language: 'en',
+        otherLocation: "http://www.nba.com/gr/reflectIntl.html?gr=australiauw&page=www&dur=ses",
+        usLocation: "http://www.nba.com/gr/reflectIntl.html?gr=australiauw&page=www&&dur=1w",
+        optionText: "au.nba.com",
+        editionCookie: "au_hp"
+    }
+
+    // use default if not configured
+    if (typeof window.navigationOptions === 'undefined') {
+        window.navigationOptions = {
+            language: 'en',
+            otherLocation: "http://www.nba.com/",
+            usLocation: "http://www.nba.com/",
+            optionText: "NBA.com",
+            editionCookie: "edition"
+        }
+    }
+
+    var MENU_POS_REDUCED = 147;
+
+    var Navigation = (function() {
+        var navTypes = {
+                'sections': 'buildSections'
+            },
+            navItemHtml = '<div class="nav-item"><a class="section-name" target="{{target}}" href="{{url}}">{{title}}</a><a class="expand-btn pull-right" data-toggle="collapse" href="#{{collapse-target}}-subnav" aria-expanded="false" aria-controls="{{collapse-target}}-subnav"><i class="icon fa fw fa-plus"></i></a></div>',
+            noBtnHtml = '<div class="nav-item"><a class="section-name" href="{{url}}">{{title}}</a></div>',
+            subnavHtml = '<li><a target="{{target}}" href="{{url}}">{{title}}</a></li>',
+            adjustedMenu = {};
+
+        function appendUrlParam(url, param) {
+            if (url.indexOf('?') == -1) {
+                return url + '?' + param;
+            }
+            return url + '&' + param;
+        }
+
+        return {
+            buildSections: function(nav) {
+                var selector = '#main-navigation .section-nav',
+                    parentSel = '#main-navigation',
+                    navDom = $(selector);
+
+                for (var index in nav) {
+                    var navItems = nav[index],
+                        parentLi = document.createElement('li'),
+                        parentLiDom = $(parentLi),
+                        url = (!navItems.url) ? '#' : navItems.url,
+                        target = navItems.target || '_self',
+                        title = nav[index]['nav-title'] || index;
+                    if (!navItems.subnav) {
+                        var navReplace = noBtnHtml
+                            .replace(/\{\{target\}\}/g, target)
+                            .replace(/\{\{url\}\}/g, url)
+                            .replace(/\{\{title\}\}/g, title.toUpperCase());
+
+                        parentLiDom.append(navReplace);
+                    } else {
+                        var collapseTarget = index.toLowerCase().replace(' ', '-'),
+                            navReplace = navItemHtml
+                            .replace(/\{\{target\}\}/g, target)
+                            .replace(/\{\{url\}\}/g, url)
+                            .replace(/\{\{collapse-target\}\}/g, collapseTarget)
+                            .replace(/\{\{title\}\}/g, title.toUpperCase()),
+                            ulId = collapseTarget + '-subnav',
+                            subnavUl = document.createElement('ul'),
+                            subnavDom = $(subnavUl);
+
+                        subnavDom.attr('id', ulId).addClass('collapse subnav');
+                        parentLiDom.append(navReplace);
+
+                        for (var section in navItems.subnav) {
+                            var url = navItems.subnav[section],
+                                target = '_self';
+                            if (navItems.subnav[section]['url']) {
+                                var url = navItems.subnav[section]['url'],
+                                    target = (navItems.subnav[section]['target']) ? navItems.subnav[section]['target'] : target;
+                            }
+
+                            var subnavReplace = subnavHtml
+                                .replace(/\{\{target\}\}/g, target)
+                                .replace(/\{\{url\}\}/g, url)
+                                .replace(/\{\{title\}\}/g, section);
+                            subnavDom.append(subnavReplace);
+                        }
+                        parentLiDom.append(subnavDom);
+                    }
+                    navDom.append(parentLiDom);
+                }
+            },
+            build: function(nav) {
+                this.navTypes = navTypes;
+                for (var type in nav) {
+                    var method = this.navTypes[type];
+                    if (!this.hasOwnProperty(method)) {
+                        continue;
+                    }
+                    this[method](nav[type]);
+                }
+            },
+            toggleMenu: function(el, type) {
+                var effect = $(el).data('effect'),
+                    self = el;
+                if (!$(self).hasClass('menu-is-active') && type != 'remove') {
+                    $(self).addClass('menu-is-active');
+                } else {
+                    $(self).removeClass('menu-is-active');
+                }
+            },
+            setMenuVisible: function() {
+                $('header.site-header').css('visibility', 'visible');
+            },
+            adjustMenu: function(ul) {
+
+                var $this = (ul instanceof $) ? ul : $(ul),
+                    $items = $this.find('> li:not(.vertical-subnav)'),
+                    $containerHeight = ul.outerHeight(true),
+                    $containerWidth = ul.outerWidth(true),
+                    $parentHeight = $this.parent().outerHeight(true),
+                    $firstHeight = $items.first().outerHeight(true),
+                    $parentHeight = ul.parent().outerHeight(true),
+                    numItems = $items.length,
+                    adjustedItems = adjustedMenu[$this.selector] || [],
+                    breakpoint = {
+                        mobile: 320,
+                        tablet: 680,
+                        desktop: 980
+                    },
+                    moveToMenu = arguments[1] || false,
+                    menuOptions = {
+                        html: '<li id="%id%" class="dropdown"><a href="#"class="dropdown-toggle" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">%title%</a><ul class="dropdown-menu" aria-labelledby="sub-level-dropdown-0"></ul></li>',
+                        title: '<i class="fa fa-ellipsis-h"></i>',
+                        id: 'sub-level-dropdown-0'
+                    },
+
+                    menuSelector = '#' + menuOptions.id + ' ul';
+
+                function unHideItems(hiddenItems, items) {
+                    for (var i in hiddenItems) {
+                        hiddenItems[i].item.removeClass('hide');
+                    }
+                    if ($(menuSelector).length < 1) {
+                        $(menuSelector).remove();
+                    }
+                }
+
+                function isHeightBusted() {
+                    if ($parentHeight - 5 > $firstHeight) {
+                        return true;
+                    }
+
+                    return $containerHeight > $firstHeight ? true : false;
+                }
+
+                function fixMenu() {
+                    if (moveToMenu) {
+                        if ($(menuSelector).length < 1) {
+                            $(menuSelector).remove();
+                        }
+                    }
+
+                    for (var i = numItems - 1; i < numItems && i != 0; i--) {
+                        var lastChild = $($items.get(i)),
+                            obj = {};
+                        if (isHeightBusted()) {
+                            lastChild.addClass('hide');
+                            $containerHeight = ul.outerHeight(true);
+                            $parentHeight = $this.parent().outerHeight(true);
+                            obj.item = lastChild;
+                            obj.index = i;
+
+                            if (moveToMenu) {
+                                if ($(menuSelector).length < 1) {
+                                    $this.append(menuOptions.html.replace('%title%', menuOptions.title).replace('%id%', menuOptions.id));
+                                }
+                                var cloned = lastChild.clone(),
+                                    clonedId = 'cloned-' + i;
+                                $(menuSelector).prepend(cloned.removeClass('hide').attr('id', clonedId));
+                                obj.clonedId = clonedId;
+                            }
+                            adjustedItems.unshift(obj);
+                        }
+                    }
+                    adjustedMenu[$this.selector] = adjustedItems;
+                }
+
+                if (!$containerHeight || Modernizr.mq("only screen and (max-width: 659px)")) {
+                    unHideItems(adjustedItems, $items);
+                    adjustedMenu[$this.selector] = [];
+                    return;
+                }
+                fixMenu();
+            }
+        }
+    })();
+
+    function mobilecheck() {
+        var check = false;
+        (function(a) {
+            if (/(android|ipad|playbook|silk|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows (ce|phone)|xda|xiino/i.test(a) || /1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(a.substr(0, 4))) check = true
+        })(navigator.userAgent || navigator.vendor || window.opera);
+        return check;
+    }
+
+    function crudClass(selector, addTo, removeFrom) {
+        var el = $(selector) || selector;
+        if (el.hasClass(removeFrom)) {
+            el.removeClass(removeFrom);
+            el.addClass(addTo);
+            return;
+        }
+        el.addClass(addTo);
+    }
+
+    function handle_edition() {
+        $('.mobileHeader .navWrap').css('top', '80px');
+
+        $("#edition_wrapper").show("slow", adjustPadding); // Using this to slowly display the div
+        var hpc = $.cookie(navigationOptions.editionCookie);
+        if (hpc != null && hpc == "us")
+            document.editionForm.edition[1].checked = true;
+        else
+            document.editionForm.edition[0].checked = true;
+    }
+
+    function handle_redirect() {
+        var hpCookie = $.cookie(navigationOptions.editionCookie);
+
+        if (hpCookie == null) {
+            var url = navigationOptions.otherLocation;
+        } else {
+            if (hpCookie == "us") {
+                var url = navigationOptions.usLocation;
+            } else {
+                var url = navigationOptions.otherLocation;
+            }
+        }
+        window.location.href = url;
+    }
+
+    function set_HP_default(val) {
+        var expires = 1000 * 60 * 60 * 24 * 7; // set 7 days
+        var today = new Date();
+        today.setTime(today.getTime());
+        expires = new Date(today.getTime() + (expires));
+        $.cookie(navigationOptions.editionCookie, val, expires, "/")
+        editionSetMessage();
+        setTimeout(closeEdition(), 4000);
+    }
+
+    function closeEdition() {
+        $("#edition_wrapper").hide(2000, adjustPadding);
+        document.getElementById("edition").className = "edition_open";
+        document.getElementById("edition_message").className = "edition_closed";
+        $('.mobileHeader .navWrap').css('top', '40px');
+
+    }
+
+    function editionSetMessage() {
+        document.getElementById("edition").className = "edition_closed";
+        document.getElementById("edition_message").className = "edition_open";
+
+    }
+
+    function setEdition() {
+        var selectedEdition = $('select#edition-select').val();
+        set_HP_default(selectedEdition);
+    }
+
+    function adjustPadding() {
+        var $mobileNav = $('.mobileHeader .navWrap');
+        var $globalNav = $('#global-nav');
+        var height = $mobileNav.height() + $globalNav.height();
+        $('#bodyWrap').css('padding-top', height + 'px');
+
+    }
+
+    function inView(el) {
+        if (el instanceof $) {
+            el = el[0];
+        }
+
+        var rect = el.getBoundingClientRect();
+
+        return (rect.bottom >= 0 && rect.right >= 0 && rect.top <= (window.innerHeight || document.documentElement.clientHeight) && rect.right <= (window.innerWidth || document.documentElement.clientWidth));
+    }
+
+    function isBelowPortraitTablet() {
+        if (window.matchMedia("only screen and (max-width: 420px)").matches) {
+            return true;
+        }
+        return false;
+    }
+
+    GlobalNav.set_HP_default = function(val) {
+        set_HP_default(val);
+    }
+
+    GlobalNav.handle_edition = function() {
+        handle_edition();
+    }
+
+    GlobalNav.handle_redirect = function() {
+        handle_redirect();
+    }
+
+    GlobalNav.set_edition = function() {
+        setEdition();
+    }
+
+    var midLevelItems = $('#site-mid-level-nav ul.main-section-nav');
+
+    $(window).on('load', function() {
+
+        // Open Menu
+        $('#site-mid-level-nav').on('show.bs.collapse', function(evt) {
+            var toggleEl = $('#site-nav-toggle');
+            Navigation.toggleMenu(toggleEl, 'add');
+        });
+
+        // Close Menu
+        $('#site-mid-level-nav').on('hide.bs.collapse', function(evt) {
+            var toggleEl = $('#site-nav-toggle');
+            Navigation.toggleMenu(toggleEl, 'remove');
+        });
+
+        // Move menu in view
+        $('.mid-level-nav li[id^="mid-dropdown"]').on('show.bs.dropdown', function(evt) {
+
+            if (isBelowPortraitTablet()) {
+                return;
+            }
+
+            var menu = $(this).find('.dropdown-menu');
+            _.delay(function() {
+                if (inView(menu)) {
+                    return;
+                }
+                crudClass(menu, 'shift-menu-right', 'shift-menu-right');
+            }, 900);
+        });
+    });
+
+    $(document).ready(function() {
+
+        $('.site-header .main-section-nav li:not(.vertical-subnav) [data-hover="dropdown"]').on('hide.bs.dropdown', function(e) {
+            $(this).parent().parent().find('li.active').each(function() {
+                if ($('.site-header .main-section-nav li:not(.vertical-subnav).open').length < 1) {
+                    $(this).addClass('open');
+                }
+            });
+        });
+
+        $('.site-header .main-section-nav li.vertical-subnav [data-hover="dropdown"]').on('show.bs.dropdown', function(e) {
+            $(this).parent().parent().find('li:not(.vertical-subnav).active').each(function() {
+                $(this).addClass('open');
+            });
+        });
+
+        $(window).resize(function() {
+            adjustPadding();
+        });
+
+        $(' #site-nav-toggle').on('click', function(event) {
+            if ($('.site-mobile-nav').hasClass('in')) {
+                $('html').removeClass('noscroll');
+                $('body').removeClass('noscroll');
+            } else {
+                $('html').addClass('noscroll');
+                $('body').addClass('noscroll');
+            }
+        });
+
+        EditionNavigation.bindEditionChange();
+
+        // only want to redirect if we're on a home page
+        EditionNavigation.detectEdition();
+        // check to see if we want to pop up a modal to make sure
+        // the user knows what region's content they're looking at
+        EditionNavigation.locationCheck();
+    });
+
+    var navAdjusted = false;
+
+    function getReducedHeader() {
+
+        if (isBelowPortraitTablet()) {
+            if ($('.site-header').hasClass('reduced')) {
+                $('.site-header').removeClass('reduced');
+            }
+            return;
+        }
+
+        if ($(this).scrollTop() > MENU_POS_REDUCED) {
+            $('.site-header').addClass('reduced');
+            if (!navAdjusted) {
+                Navigation.adjustMenu(midLevelItems);
+                navAdjusted = true;
+            }
+        } else {
+            if ($('.site-header').hasClass('reduced')) {
+                $('.site-header').removeClass('reduced');
+                if (navAdjusted) {
+                    Navigation.adjustMenu(midLevelItems);
+                    navAdjusted = false;
+                }
+            }
+        }
+    }
+
+    var throttled = _.throttle(getReducedHeader, 100);
+
+    $(window).on('scroll', throttled);
+
+})(jQuery, _, Modernizr, window.GlobalNav = window.GlobalNav || {});

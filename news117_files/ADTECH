@@ -1,0 +1,3 @@
+document.write('<a href="https://adserver.adtech.de/?adlink/327/5195525/0/16/AdId=-3;BnId=0;itime=627968353;" target="_blank"><img src="https://aka-cdn.adtech.de/images/Default_Size_16_1x1.gif" border="0" alt="AdTech Ad" width="1" height="1"/></a>');
+var imageperf=new Image();
+imageperf.src='https://ad-dc2.adtech.de/adperf/3.0/327/5195525/0/16/AdId=-3;BnId=0;ct=3007812219;st=2807;ku=0;ccid=18;scid=93001193;iid=275;zcid=0;subnid=0;camnid=327;camsubnid=0;bnnr=0;ctlen=317;';  

@@ -1,0 +1,128 @@
+/**
+ * /environment/omniture-extension
+ *
+ * Extends Omniture object to incorporate additional parameters and event
+ * tracking.
+ *
+ * NOTE: Must use 'javascript:' if you do not want to track an additional exit
+ * link
+ *
+ * @author Hillisha Haygood <hhaygood@sportingnews.com>
+ * @copyright 2013 Sporting News
+ */
+ (function ( OmnitureExt, $, _ ) {
+    "use strict";
+
+    var openNewWindow = function(el, url) {
+        var newWindow = window.open(url,
+            el.attr('target') || '_parent');
+        newWindow.focus();
+    };
+
+    OmnitureExt.parameters = {};
+
+    OmnitureExt.addParameter = function(parameter, value, omniture) {
+        omniture[parameter] = value;
+        return omniture;
+    };
+
+    OmnitureExt.send = function(type, url, omniture) {
+        // omniture.tl(true, type, url);
+    };
+
+    // To track anything
+    OmnitureExt.track = function(options) {
+        if (typeof "s_gi" !== "function") {
+            return;
+        }
+        var omniture = s_gi(window.s_account)
+        _.extend(omniture, options)
+        // omniture.t()
+    };
+
+    OmnitureExt.trackLink = function(options) {
+        var el = $(this),
+            Omniture = s_gi(window.s_account),
+            _omniture = options.omniture;
+
+        for (var prop in _omniture) {
+            Omniture =
+                OmnitureExt.addParameter(prop, _omniture[prop], Omniture);
+        }
+
+        OmnitureExt.send(
+            options.type,
+            options.url,
+            Omniture
+        );
+
+        var redirect  = options.redirect || false;
+
+        if (redirect === true) {
+            openNewWindow(el, options.url);
+        }
+        return false;
+    };
+
+    OmnitureExt.trackMultipleLinks = function(selector, options) {
+        var el = $(selector);
+
+        el.find('a').each(function(i) {
+            $(this).unbind('click');
+        });
+
+        el.find('a').on('click', function(e) {
+            var Omniture = s_gi(window.s_account),
+                _omniture = options.omniture;
+
+            for (var prop in _omniture) {
+                Omniture =
+                    OmnitureExt.addParameter(prop, _omniture[prop], Omniture);
+            }
+
+            var url = options.url || $(this).data('url') || null,
+                redirect = options.redirect || true;
+
+            OmnitureExt.send(
+                options.type,
+                url,
+                Omniture
+            );
+
+            if (redirect === true) {
+                openNewWindow($(this), url);
+            }
+            return false;
+        });
+    }
+
+    OmnitureExt.trackPartnerLink = function(selector) {
+        var el = $(selector);
+
+        el.find('a').each(function(i) {
+            $(this).unbind('click');
+        });
+
+        el.find('a').on('click', function(e) {
+            var Omniture = s_gi(window.s_account),
+                partner = $(this).data('partner')
+                    .replace('http://', '')
+                    .replace('blogs.', '')
+                    .replace('www.', '')
+                    .replace('.com', '');
+
+            Omniture =
+                OmnitureExt.addParameter('linkTrackVars', 'prop49', Omniture);
+            Omniture =
+                OmnitureExt.addParameter('prop49', 'PMod:'+partner, Omniture);
+
+            OmnitureExt.send('e', $(this).data('url'), Omniture);
+
+            openNewWindow($(this), $(this).data('url'));
+            return false;
+        });
+    };
+
+
+
+ } ( window.OmnitureExt = window.OmnitureExt || {}, jQuery, _ ) );

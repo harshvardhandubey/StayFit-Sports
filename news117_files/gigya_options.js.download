@@ -1,0 +1,57 @@
+var options = {
+  themeScreenSet: 'Default',
+  // more info: http://developers.gigya.com/display/GD/Default+Screen-sets
+  paramsScreenSet: {
+    login: {
+      name: 'RegistrationLogin',
+      startScreen: false,
+      isPopup: true,
+      contextLogEvent: {
+        event: 'login'
+      }
+    },
+    register: {
+      name: 'RegistrationLogin',
+      startScreen: 'gigya-register-screen',
+      isPopup: true,
+      contextLogEvent: {
+        event: 'register'
+      }
+    },
+    forgotPassword: {
+      name: 'RegistrationLogin',
+      startScreen: false,
+      isPopup: true,
+      contextGtm: {}
+    },
+    profile: {
+      name: 'ProfileUpdate',
+      startScreen: false,
+      isPopup: false,
+      contextLogEvent: {}
+    },
+    linkAccounts: {
+      name: 'LinkAccounts',
+      startScreen: false,
+      isPopup: true,
+      contextLogEvent: {}
+    },
+    reAuth: {
+      name: 'ReAuthentication',
+      startScreen: false,
+      isPopup: true,
+      contextLogEvent: {}
+    }
+  },
+  // holder to emit dom event
+  eventDomHolder: 'body',
+  // container to append gigya screenSet
+  containerId: 'container-gigya',
+  // more info http://developers.gigya.com/display/GD/accounts.logout+JS#accounts.logoutJS-Parameters
+  forceProvidersLogout: false,
+  urlRestApi: '/service/gigya',
+  // log user action to GTM etc.
+  logUserEvent: true,
+  // timeout when gigya doesn't respond
+  timeout: 10000
+};

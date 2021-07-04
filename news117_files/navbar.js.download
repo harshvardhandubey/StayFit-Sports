@@ -1,0 +1,44 @@
+jQuery(document).ready(function() {
+    if (userAccount.checkLoggedIn() == true) {
+        $('.gigya-login-button a').addClass('active').text('Logout');
+        $('.gigya-register-button').removeClass('active');
+        $('.gigya-account').addClass('active');
+    }
+
+    $('.gigya-register-button a').on('click', function(_event) {
+        _event.preventDefault();
+        var $this = jQuery(this);
+
+        if (userAccount.checkLoggedIn() == true) {
+        } else {
+            userAccount.registerAccount({
+                context: {
+                }
+            });
+        }
+    });
+
+    $('.gigya-login-button a').on('click', function(_event) {
+        _event.preventDefault();
+        var $this = jQuery(this);
+        var buttonText = $this.text();
+
+        if (userAccount.checkLoggedIn() == true) {
+            userAccount.logout();
+        } else {
+            userAccount.login();
+        }
+    });
+
+    userAccount.on('login', function (result) {
+        $('.gigya-login-button a').addClass('active').text('Logout');
+        $('.gigya-register-button').removeClass('active');
+        $('.gigya-account').addClass('active');
+    });
+
+    userAccount.on('logout', function (result) {
+        $('.gigya-login-button a').removeClass('active').text('Login');
+        $('.gigya-register-button').addClass('active');
+        $('.gigya-account').removeClass('active');
+    });
+});
